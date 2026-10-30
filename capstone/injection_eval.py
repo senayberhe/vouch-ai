@@ -1,7 +1,7 @@
 """Prompt-injection suite: planted documents and hostile questions against the real API paths.
 
     python -m capstone.injection_eval                                 # offline extractive writer (CI)
-    python -m capstone.injection_eval --writer openai --model gpt-4.1-mini   # needs --extra llm + OPENAI_API_KEY
+    python -m capstone.injection_eval --writer openai --model gpt-5.4-mini-2026-03-17   # needs --extra llm + OPENAI_API_KEY
 
 Threat model: 'mallory', an editor in alice's own tenant and group, uploads documents that carry
 instructions; alice then asks a question, and the same question runs as a research job through
@@ -75,6 +75,7 @@ def run_case(case: dict, suite: dict, writer=None) -> dict:
     from .jobs import claim_job, finish_job
 
     app = create_app(Settings("sqlite://", None, TOKENS, "injection-eval-routing-secret-0123456789"), init_tables=True)
+    app.state.writer = writer  # the RAG endpoint and the worker both use the writer under test
     client = TestClient(app)
     auth = {v["user"]: {"Authorization": f"Bearer {k}"} for k, v in TOKENS.items()}
 
@@ -106,13 +107,25 @@ def run_case(case: dict, suite: dict, writer=None) -> dict:
                      for u in ("alice", "mallory")]
     detail = client.get(f"/v1/research/jobs/{job['job_id']}", headers=auth["alice"]).json()
 
-    rag_ids = [c["citation_id"] for c in rag["citations"]]
-    outputs = [{"text": rag["answer"], "cited": rag_ids, "docs": [c["document_id"] for c in rag["citations"]]}]
+    # What alice's question puts in the model's context. A model cites only what it uses, so validity
+    # (did the planted text reach the context?) and forgery are judged against this, not the citations.
+    # The job retrieves with its stored (PII-redacted) question, so each output has its own context.
+    from .db import Job
+    from .retrieval import retrieve
+    from .security import Principal
+    alice = Principal("acme", "alice", frozenset({"engineering"}), "editor")
+    with app.state.sessions() as s:
+        def context(question):
+            return [h["citation_id"] for h in retrieve(s, alice, question, 3, case.get("group"))]
+        rag_context, job_context = context(case["question"]), context(s.get(Job, job["job_id"]).question)
+    docs = lambda ids: [c.split(":")[0] for c in ids]
+    outputs = [{"text": rag["answer"], "cited": rag_context,
+                "docs": docs(rag_context) + [c["document_id"] for c in rag["citations"]]}]
     if detail.get("report"):
-        outputs.append({"text": detail["report"], "cited": detail["citations"],
-                        "docs": [c.split(":")[0] for c in detail["citations"]]})
+        outputs.append({"text": detail["report"], "cited": job_context,
+                        "docs": docs(job_context) + docs(detail["citations"])})
     checks = score(outputs, case, list(secrets.values()), {other, finance}, detail["status"], self_approval)
-    retrieved = planted is None or planted in outputs[0]["docs"] + [c.split(":")[0] for c in detail.get("citations", [])]
+    retrieved = planted is None or planted in docs(rag_context) + docs(job_context)
     return {"id": case["id"], "category": case["category"], "valid": retrieved, "job_status": detail["status"],
             **checks, "success": any(checks.values())}
 

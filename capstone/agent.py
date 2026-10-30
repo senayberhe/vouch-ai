@@ -5,7 +5,7 @@ cannot approve its own work. LangGraph execution is required when installed and
 CAPSTONE_GRAPH=langgraph; no silent fallback after a LangGraph error.
 """
 from typing import TypedDict
-from .retrieval import retrieve, extract_report, check_citations
+from .retrieval import CITATION_SHAPE, retrieve, extract_report, check_citations
 
 
 class ResearchState(TypedDict, total=False):
@@ -28,13 +28,17 @@ def build_functions(session, principal, group=None, writer=None):
     def draft(state: ResearchState):
         report, citations = extract_report(state["question"], state.get("evidence", []))
         if writer is not None and citations:
-            report = writer.draft(state["question"], state["evidence"])
+            # A model cites the passages it used, usually a subset (or none when it abstains).
+            result = writer.compose(state["question"], state["evidence"])
+            report, citations = result.answer, result.citations
         return {"report": report, "citations": citations}
 
     def verify(state: ResearchState):
         e = state.get("evidence", [])
         c = state.get("citations", [])
-        return {"verified": check_citations(state.get("report", ""), c, e) if e else True}
+        report = state.get("report", "")
+        # Every citation must be given evidence; a report that cites nothing must not contain citation-shaped text.
+        return {"verified": check_citations(report, c, e) if c else not CITATION_SHAPE.search(report)}
     return plan, search, draft, verify
 
 

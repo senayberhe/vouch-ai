@@ -44,7 +44,20 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://capstone:integration_only_password@localhost:5432/capstone_test
           TEST_REDIS_URL: redis://localhost:6379/15
-        run: uv run pytest -q
+        run: uv run pytest -q --junitxml=artifacts/pytest-ci.xml
+      - name: Require infrastructure tests to execute
+        run: uv run python scripts/check_integration_report.py artifacts/pytest-ci.xml
+      - name: Evaluate frozen holdout (offline baseline)
+        run: uv run python -m capstone.rag_benchmark --models hash-128 --dataset-dir benchmark/holdout --report-name rag_holdout
+      - name: Retain test and holdout evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ github.run_id }}
+          path: |
+            artifacts/pytest-ci.xml
+            artifacts/rag_holdout.json
+            artifacts/rag_holdout.md
       - name: Build container
         run: docker build -t secure-ai-capstone:ci .
 
@@ -70,7 +83,7 @@ jobs:
   # (repository secret CAPSTONE_ATTESTATION_PRIVATE_KEY); the API holds only the public key.
   release-evidence:
     if: github.event_name == 'workflow_dispatch'
-    needs: test
+    needs: [test, web]
     runs-on: ubuntu-latest
     environment: release-evidence
     steps:

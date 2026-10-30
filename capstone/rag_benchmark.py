@@ -130,12 +130,16 @@ def main(argv=None) -> int:
     parser.add_argument("--models", nargs="+", default=[HASH_MODEL, "sentence-transformers/all-MiniLM-L6-v2"],
                         choices=[HASH_MODEL, *APPROVED_MODELS])
     parser.add_argument("--out", default=str(ROOT / "artifacts"))
+    parser.add_argument("--dataset-dir", type=Path, default=BENCHMARK,
+                        help="Directory containing corpus.json and cases.json")
+    parser.add_argument("--report-name", default="rag_benchmark", choices=["rag_benchmark", "rag_holdout"],
+                        help="Output stem; use rag_holdout to preserve the development report")
     args = parser.parse_args(argv)
-    report = run_benchmark(args.models)
+    report = run_benchmark(args.models, directory=args.dataset_dir)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "rag_benchmark.json").write_text(json.dumps(report, indent=2) + "\n")
-    (out / "rag_benchmark.md").write_text(markdown(report))
+    (out / f"{args.report_name}.json").write_text(json.dumps(report, indent=2) + "\n")
+    (out / f"{args.report_name}.md").write_text(markdown(report))
     print(markdown(report))
     return 0 if all(r["cross_tenant_or_group_leaks"] == 0 for m in report["results"].values() for r in m.values()) else 1
 

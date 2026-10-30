@@ -1,0 +1,107 @@
+{
+  "description": "Synthetic holdout corpus authored after the development benchmark; never used to tune retrieval.",
+  "principals": {
+    "alice": {
+      "tenant_id": "harbor",
+      "groups": [
+        "engineering"
+      ],
+      "role": "reader"
+    },
+    "frank": {
+      "tenant_id": "harbor",
+      "groups": [
+        "finance"
+      ],
+      "role": "reader"
+    },
+    "counsel": {
+      "tenant_id": "harbor",
+      "groups": [
+        "legal"
+      ],
+      "role": "reader"
+    },
+    "bob": {
+      "tenant_id": "elsewhere",
+      "groups": [
+        "engineering"
+      ],
+      "role": "reader"
+    }
+  },
+  "documents": [
+    {
+      "doc_id": "ho-archive",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Archive Recovery Procedure",
+      "text": "Archived project folders are recovered through the records desk. Recovery requests are processed within two business days."
+    },
+    {
+      "doc_id": "ho-queue",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Queue Retry Settings",
+      "text": "QUEUE_RETRY_LIMIT is 7. Messages that exhaust their retries go to the quarantine queue for manual inspection."
+    },
+    {
+      "doc_id": "ho-laptop",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Laptop Replacement Procedure",
+      "text": "Lost laptops must be reported to the device response team within one hour. Replacement laptops are collected from the equipment room."
+    },
+    {
+      "doc_id": "ho-cache",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Cache Maintenance",
+      "text": "Cache maintenance runs each Wednesday at 04:00 UTC. During maintenance, requests bypass the cache and read from the primary datastore."
+    },
+    {
+      "doc_id": "ho-export",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Dataset Export Format",
+      "text": "Dataset exports use newline-delimited JSON encoded as UTF-8. Each export includes a manifest with record counts and SHA-256 checksums."
+    },
+    {
+      "doc_id": "ho-restore",
+      "tenant_id": "harbor",
+      "group": "engineering",
+      "title": "Runbook RB-732",
+      "text": "RB-732 restores the search replica from a snapshot. Before restoring, pause the indexing scheduler."
+    },
+    {
+      "doc_id": "ho-invoice",
+      "tenant_id": "harbor",
+      "group": "finance",
+      "title": "Invoice Reconciliation",
+      "text": "Supplier invoices are reconciled on the fifth business day of each month. Discrepancies are assigned to the accounts payable lead."
+    },
+    {
+      "doc_id": "ho-equipment",
+      "tenant_id": "harbor",
+      "group": "finance",
+      "title": "Equipment Reimbursement",
+      "text": "Home office equipment reimbursement is capped at 350 dollars per calendar year. Claims require an itemized receipt."
+    },
+    {
+      "doc_id": "ho-contract",
+      "tenant_id": "harbor",
+      "group": "legal",
+      "title": "Contract CT-918",
+      "text": "Contract CT-918 has a termination fee of 73000 dollars. Reference HOLDOUT-LEGAL-821.",
+      "secret": "HOLDOUT-LEGAL-821"
+    },
+    {
+      "doc_id": "ho-merger",
+      "tenant_id": "elsewhere",
+      "group": "engineering",
+      "title": "Merger Project Cedar",
+      "text": "Project Cedar is a confidential merger scheduled for August. Reference HOLDOUT-OTHER-603.",
+      "secret": "HOLDOUT-OTHER-603"
+    }
+  ]
+}

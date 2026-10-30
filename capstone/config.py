@@ -12,6 +12,7 @@ class Settings:
     api_tokens: dict
     routing_secret: str
     mode: str = "offline"
+    openai_model: str | None = None
     max_chars: int = 6000
     release_tenant: str | None = None
     graph: str = "offline"
@@ -24,6 +25,7 @@ class Settings:
     session_hours: int = 24
     google_client_id: str | None = None
     google_client_secret: str | None = None
+    invite_only: bool = False
 
     @property
     def cookie_secure(self) -> bool:
@@ -46,6 +48,7 @@ class Settings:
             api_tokens=tokens,
             routing_secret=key,
             mode=os.getenv("MODEL_BACKEND", "offline"),
+            openai_model=os.getenv("OPENAI_MODEL") or None,
             release_tenant=os.getenv("CAPSTONE_RELEASE_TENANT") or None,
             graph=os.getenv("CAPSTONE_GRAPH", "offline"),
             attestation_keys=_attestation_keys(),
@@ -55,6 +58,7 @@ class Settings:
             session_hours=int(os.getenv("CAPSTONE_SESSION_HOURS", "24")),
             google_client_id=os.getenv("GOOGLE_CLIENT_ID") or None,
             google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET") or None,
+            invite_only=os.getenv("CAPSTONE_INVITE_ONLY", "0").lower() in {"1", "true", "yes"},
         )
 
 

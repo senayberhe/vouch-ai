@@ -120,8 +120,12 @@ def google_account(db, sub: str, email: str, name: str | None) -> User:
     if not user.email_verified:
         # Whoever registered this email with a password never proved they own it. Google just did, so the
         # unverified password and its sessions are removed (prevents pre-registering a victim's address).
+        # So is any invited membership: accepting an invitation doesn't prove the email either, and the
+        # owner never agreed to join that workspace. They fall back to their own private user.tenant.
         user.password_hash = None
         db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        db.execute(delete(WorkspaceMembership).where(WorkspaceMembership.user_id == user.id,
+                                                     WorkspaceMembership.tenant != user.tenant))
     user.google_sub, user.email_verified, user.name = sub, True, user.name or name
     return user
 

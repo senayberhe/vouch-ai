@@ -174,3 +174,27 @@ def test_google_takes_over_unverified_password_account(google_app):
                                                                "password": PASSWORD}).status_code == 401
     client, _ = google_login(google_app)
     assert client.get("/v1/me").json()["tenant"] == tenant
+
+
+def test_google_takeover_drops_a_squatted_invitation(google_app):
+    # An admin invites an address they don't own and accepts for it, so the real owner must not inherit that workspace.
+    inviter = TestClient(google_app)
+    inviter_tenant = signup(inviter, email="mallory@example.com").json()["tenant"]
+    invite = inviter.post("/v1/workspace/invitations", headers=CSRF, json={"email": "ada@example.com", "role": "editor"})
+    token = invite.json()["invite_url"].split("#invite=")[1]
+    squatter = TestClient(google_app)
+    joined = squatter.post("/v1/auth/signup", json={"email": "ada@example.com", "password": PASSWORD,
+                                                    "invitation_token": token})
+    assert joined.json()["tenant"] == inviter_tenant
+
+    owner, r = google_login(google_app)
+    assert r.headers["location"] == "/"
+    assert squatter.get("/v1/me").status_code == 401
+    me = owner.get("/v1/me").json()
+    assert me["tenant"] != inviter_tenant and me["role"] == "admin"
+    upload = owner.post("/v1/documents", headers=CSRF, json={"title": "Private plan", "group": "personal",
+                                                             "text": "The codename is BLUEHERON."})
+    assert upload.status_code == 201
+    assert inviter.get("/v1/documents").json()["documents"] == []
+    answer = inviter.post("/v1/rag/query", headers=CSRF, json={"question": "What is the codename?"}).json()
+    assert "BLUEHERON" not in answer["answer"]

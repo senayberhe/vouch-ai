@@ -157,7 +157,7 @@ describe("SignIn quick identities", () => {
   it("signs in with the chosen development identity", async () => {
     serve((url) => (url === "/v1/me" ? [200, rachel] : [404, {}]));
     const onSignedIn = vi.fn();
-    render(<SignIn onSignedIn={onSignedIn} auth={{ ...createAuth(), config: async () => ({ password: true, google: false }) }} identities={[
+    render(<SignIn onSignedIn={onSignedIn} auth={{ ...createAuth(), config: async () => ({ password: true, google: false, invite_only: false }) }} identities={[
       { user: "alice", role: "editor", tenant: "acme", token: "alice-token" },
       { user: "rachel", role: "reviewer", tenant: "acme", token: "rachel-token" },
     ]} />);

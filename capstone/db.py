@@ -161,7 +161,7 @@ class Audit(Base):
 
 
 class User(Base):
-    """A self-registered account. Each one owns a private workspace tenant; email is the principal's user."""
+    """An account identity; workspace access and role are stored in WorkspaceMembership."""
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
     email: Mapped[str] = mapped_column(String(64), unique=True)
@@ -180,6 +180,28 @@ class AuthSession(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WorkspaceMembership(Base):
+    """The account's workspace and least-privilege role; one workspace per account for now."""
+    __tablename__ = "workspace_memberships"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(64), index=True)
+    role: Mapped[str] = mapped_column(String(24), default="admin")
+    groups_json: Mapped[str] = mapped_column(Text, default='["personal"]')
+
+
+class WorkspaceInvitation(Base):
+    __tablename__ = "workspace_invitations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    tenant: Mapped[str] = mapped_column(String(64), index=True)
+    email: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(24))
+    token_sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def database(url: str):

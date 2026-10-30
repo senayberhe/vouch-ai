@@ -29,7 +29,7 @@ export function Button({ variant = "default", className = "", ...props }:
   ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof BUTTON }) {
   return (
     <button {...props}
-      className={`rounded-lg border px-3.5 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-55 ${BUTTON[variant]} ${className}`} />
+      className={`ui-button rounded-lg border px-3.5 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-55 ${BUTTON[variant]} ${className}`} />
   );
 }
 
@@ -37,8 +37,8 @@ export function Card({ title, children, actions, className = "" }: {
   title: string; children: ReactNode; actions?: ReactNode; className?: string;
 }) {
   return (
-    <section className={`min-w-0 rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5 ${className}`}>
-      <header className="mb-3.5 flex items-center justify-between gap-3">
+    <section className={`workspace-card min-w-0 ${className}`}>
+      <header className="card-heading flex items-center justify-between gap-3">
         <h2>{title}</h2>
         {actions}
       </header>

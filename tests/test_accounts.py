@@ -97,7 +97,7 @@ def test_forged_session_cookie_rejected(app):
 
 
 def test_google_disabled_by_default(client):
-    assert client.get("/v1/auth/config").json() == {"password": True, "google": False}
+    assert client.get("/v1/auth/config").json() == {"password": True, "google": False, "invite_only": False}
     assert client.get("/v1/auth/google/start", follow_redirects=False).status_code == 404
 
 

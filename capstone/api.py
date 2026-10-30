@@ -2,7 +2,9 @@
 import hashlib
 import json
 import re
+import secrets
 import time
+from datetime import timedelta, timezone
 from typing import Literal
 from fastapi import FastAPI, Header, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
@@ -12,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from .config import Settings
 from .db import (Document, Chunk, Job, ModelVersion, Incident, Audit, ReleaseEvidence, ArtifactVerification,
-                 User, database, init_schema, uid)
+                 User, WorkspaceMembership, WorkspaceInvitation, database, init_schema, uid, now)
 from .security import (Principal, authenticate, can_review, require_release_operator, require_role,
                        redact_pii, sanitize_incident_summary)
 from .retrieval import split_text, retrieve, extract_report, index_chunks
@@ -108,6 +110,26 @@ class SignUp(StrictModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=12, max_length=128)
     name: str | None = Field(default=None, max_length=100)
+    invitation_token: str | None = Field(default=None, min_length=20, max_length=100)
+
+
+class InviteCreate(StrictModel):
+    email: str = Field(min_length=3, max_length=254)
+    role: Literal["reader", "editor", "reviewer"] = "reader"
+
+
+class InvitationToken(StrictModel):
+    token: str = Field(min_length=30, max_length=100)
+
+
+def _invitation_digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _invitation_valid_until(expires_at) -> bool:
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at > now()
 
 
 class Login(StrictModel):
@@ -135,6 +157,12 @@ def create_app(settings: Settings, *, init_tables: bool = False):
     gate = {"artifact_root": settings.artifact_root, "max_age_hours": settings.evidence_max_age_hours}
     app.state.graph = None
     app.state.google = None
+    app.state.writer = None
+    if settings.mode == "openai":
+        if not settings.openai_model:
+            raise RuntimeError("MODEL_BACKEND=openai needs OPENAI_MODEL")
+        from .llm import LLMWriter
+        app.state.writer = LLMWriter(settings.openai_model)
     if settings.google_client_id and settings.google_client_secret:
         app.state.google = GoogleOIDC(settings.google_client_id, settings.google_client_secret,
                                       f"{settings.public_url}/v1/auth/google/callback")
@@ -187,7 +215,7 @@ def create_app(settings: Settings, *, init_tables: bool = False):
         s.commit()
         response.set_cookie(SESSION_COOKIE, token, max_age=settings.session_hours * 3600, httponly=True,
                             secure=settings.cookie_secure, samesite="lax", path="/")
-        return me_payload(principal_for(user))
+        return me_payload(principal_for(user, s))
 
     def me_payload(p: Principal) -> dict:
         return {"user": p.user, "tenant": p.tenant, "role": p.role, "groups": sorted(p.groups),
@@ -201,9 +229,9 @@ def create_app(settings: Settings, *, init_tables: bool = False):
             require_csrf_header(request)
             with sessions() as s:
                 user = session_user(s, cookie)
+                p = principal_for(user, s) if user is not None else None
             if user is None:
                 raise HTTPException(401, "Authentication required")
-            p = principal_for(user)
         # Avoid raw tokens in Redis keys. Rate limit scoped by tenant + subject.
         identity = hashlib.sha256(f"{p.tenant}:{p.user}".encode()).hexdigest()
         try:
@@ -262,9 +290,17 @@ def create_app(settings: Settings, *, init_tables: bool = False):
         with sessions() as s:
             passages = retrieve(s, p, data.question, data.top_k, data.group)
         report, citations = extract_report(data.question, passages)
+        mode = "offline-extractive"
+        if app.state.writer is not None and passages:
+            try:
+                result = app.state.writer.compose(data.question, passages)
+                report, citations, mode = result.answer, result.citations, f"llm:{result.model}"
+            except Exception:
+                # Timeout, API error or output that failed validation: answer with the safe extract instead.
+                mode = "offline-extractive-fallback"
         return {"answer": redact_pii(report), "citations":
                 [{"citation_id": x["citation_id"], "document_id": x["document_id"],
-                  "title": x["title"]} for x in passages], "mode": "offline-extractive"}
+                  "title": x["title"]} for x in passages if x["citation_id"] in citations], "mode": mode}
 
     @app.post("/v1/research/jobs", status_code=202)
     def create_job(data: Query, p: Principal = Depends(principal),
@@ -465,7 +501,55 @@ def create_app(settings: Settings, *, init_tables: bool = False):
 
     @app.get("/v1/auth/config")
     def auth_config():
-        return {"password": True, "google": app.state.google is not None}
+        return {"password": True, "google": app.state.google is not None, "invite_only": settings.invite_only}
+
+    @app.post("/v1/workspace/invitations", status_code=201)
+    def create_workspace_invitation(data: InviteCreate, p: Principal = Depends(principal)):
+        if p.role != "admin":
+            raise HTTPException(403, "Workspace admin required")
+        email = normalize_email(data.email)
+        if email is None:
+            raise HTTPException(422, "Enter a valid email address of at most 64 characters")
+        token = secrets.token_urlsafe(32)
+        expires_at = now() + timedelta(days=7)
+        with sessions.begin() as s:
+            if s.scalar(select(User.id).where(User.email == email)):
+                raise HTTPException(409, "This email already has an account; invitations currently support new accounts only")
+            pending = s.scalars(select(WorkspaceInvitation).where(
+                WorkspaceInvitation.tenant == p.tenant, WorkspaceInvitation.email == email,
+                WorkspaceInvitation.accepted_at.is_(None))).all()
+            for row in pending:
+                row.accepted_at = now()  # invalidate any previously issued link for this address
+            s.add(WorkspaceInvitation(tenant=p.tenant, email=email, role=data.role,
+                                      token_sha256=_invitation_digest(token), created_by=p.user,
+                                      expires_at=expires_at))
+            s.add(Audit(tenant=p.tenant, action="workspace_invitation_created", actor=p.user))
+        return {"email": email, "role": data.role, "expires_at": expires_at.isoformat(),
+                "invite_url": f"{settings.public_url}/#invite={token}"}
+
+    @app.get("/v1/workspace/invitations")
+    def list_workspace_invitations(p: Principal = Depends(principal)):
+        if p.role != "admin":
+            raise HTTPException(403, "Workspace admin required")
+        with sessions() as s:
+            rows = s.scalars(select(WorkspaceInvitation).where(
+                WorkspaceInvitation.tenant == p.tenant, WorkspaceInvitation.accepted_at.is_(None)
+            ).order_by(WorkspaceInvitation.created_at.desc()).limit(100))
+            return {"invitations": [{"email": row.email, "role": row.role,
+                                      "expires_at": row.expires_at.isoformat(),
+                                      "expired": not _invitation_valid_until(row.expires_at)} for row in rows]}
+
+    @app.post("/v1/auth/invitations/inspect")
+    def inspect_invitation(data: InvitationToken, request: Request):
+        limit(f"invitation-inspect:{client_ip(request)}", 30)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{30,100}", data.token):
+            raise HTTPException(404, "Invitation is invalid or expired")
+        with sessions() as s:
+            row = s.scalar(select(WorkspaceInvitation).where(
+                WorkspaceInvitation.token_sha256 == _invitation_digest(data.token)))
+            if row is None or row.accepted_at is not None or not _invitation_valid_until(row.expires_at):
+                raise HTTPException(404, "Invitation is invalid or expired")
+            return {"email": row.email, "role": row.role, "expires_at": row.expires_at.isoformat()}
 
     @app.post("/v1/auth/signup", status_code=201)
     def signup(data: SignUp, request: Request, response: Response):
@@ -474,11 +558,28 @@ def create_app(settings: Settings, *, init_tables: bool = False):
         if email is None:
             raise HTTPException(422, "Enter a valid email address of at most 64 characters")
         with sessions() as s:
+            invitation = None
+            if data.invitation_token:
+                invitation = s.scalar(select(WorkspaceInvitation).where(
+                    WorkspaceInvitation.token_sha256 == _invitation_digest(data.invitation_token)).with_for_update())
+                if (invitation is None or invitation.accepted_at is not None
+                        or not _invitation_valid_until(invitation.expires_at) or invitation.email != email):
+                    raise HTTPException(400, "Invitation is invalid, expired, or for a different email")
+            elif settings.invite_only:
+                raise HTTPException(403, "A valid workspace invitation is required to create an account")
             if s.scalar(select(User.id).where(User.email == email)):
                 raise HTTPException(409, "An account with this email already exists")
             user = new_user(email, password_hash=hash_password(data.password), name=data.name or None)
             s.add(user)
-            s.add(Audit(tenant=user.tenant, action="account_created", actor=email))
+            s.flush()
+            if invitation:
+                tenant, role = invitation.tenant, invitation.role
+                invitation.accepted_at = now()
+            else:
+                tenant, role = user.tenant, "admin"
+            s.add(WorkspaceMembership(user_id=user.id, tenant=tenant, role=role,
+                                     groups_json='["personal"]'))
+            s.add(Audit(tenant=tenant, action="account_created", actor=email))
             s.flush()
             return signed_in(response, s, user)
 
@@ -529,6 +630,14 @@ def create_app(settings: Settings, *, init_tables: bool = False):
             response.headers["Location"] = "/?auth_error=google"
             return response
         with sessions() as s:
+            if settings.invite_only:
+                # Google sign-in cannot accept an invitation link in this callback. In invite-only mode,
+                # allow existing accounts but never let the OAuth callback create an uninvited workspace.
+                existing_email = s.scalar(select(User.id).where(User.email == identity["email"]))
+                existing_sub = s.scalar(select(User.id).where(User.google_sub == identity["sub"]))
+                if not existing_email and not existing_sub:
+                    response.headers["Location"] = "/?auth_error=google"
+                    return response
             user = google_account(s, identity["sub"], identity["email"], identity["name"])
             s.flush()
             signed_in(response, s, user)

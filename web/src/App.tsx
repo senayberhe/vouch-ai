@@ -6,6 +6,7 @@ import Research from "./views/Research";
 import Releases from "./views/Releases";
 import Incidents from "./views/Incidents";
 import Quality from "./views/Quality";
+import Workspace from "./views/Workspace";
 
 // Accounts use an HttpOnly session cookie the page can't read. Development bearer keys are kept in
 // sessionStorage instead: they survive a reload but are dropped when the tab closes.
@@ -36,7 +37,21 @@ function Logo() {
   );
 }
 
-type Tab = "knowledge" | "research" | "quality" | "releases" | "incidents";
+type Tab = "knowledge" | "research" | "quality" | "releases" | "incidents" | "workspace";
+
+const SECTION_INFO: Record<Tab, { title: string; description: string; path: string }> = {
+  knowledge: { title: "Your knowledge, connected.", description: "Turn trusted documents into clear answers. Every source stays in your workspace.", path: "M4 5h6l2 2h8v13H4z M8 12h8 M8 16h5" },
+  research: { title: "From question to insight.", description: "Start a research task, explore the evidence, and bring a second pair of eyes.", path: "M10 3v6l-6 10a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3 M8 3h8 M8 15h8" },
+  quality: { title: "Confidence starts with evidence.", description: "Look beyond the average. Evaluate your model and see how every group performs.", path: "M4 20V10 M10 20V4 M16 20v-7 M22 20H2" },
+  releases: { title: "Ship with confidence.", description: "Move from signed evidence to a measured rollout, with a clear path back.", path: "M14 4c3-1 6-1 6-1s0 3-1 6l-7 7-5-5z M7 11l-4 1v5l4-1 M12 16l-1 5h5l1-5 M5 19l-2 2 M15 8h.01" },
+  incidents: { title: "Stay ahead of the unexpected.", description: "Track, contain, and resolve incidents across your workspace.", path: "M12 3l9 17H3z M12 9v5 M12 17h.01" },
+  workspace: { title: "Bring your team into the workspace.", description: "Invite teammates with a role that matches the work they need to do.", path: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 M20 8v6 M23 11h-6" },
+};
+
+function SectionIcon({ id }: { id: Tab }) {
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={SECTION_INFO[id].path} /></svg>;
+}
+
 
 export function tabsFor(me: Me): { id: Tab; label: string }[] {
   const tabs: { id: Tab; label: string }[] = [
@@ -46,6 +61,7 @@ export function tabsFor(me: Me): { id: Tab; label: string }[] {
   if (me.role === "admin" || me.role === "reviewer") tabs.push({ id: "quality", label: "Quality" });
   if (me.release_operator) tabs.push({ id: "releases", label: "Releases" });
   if (me.role === "admin" || me.role === "reviewer") tabs.push({ id: "incidents", label: "Incidents" });
+  if (me.role === "admin") tabs.push({ id: "workspace", label: "Workspace" });
   return tabs;
 }
 
@@ -83,18 +99,28 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
   /** token is a development bearer key, or null for an account session held in the HttpOnly cookie. */
   onSignedIn: (token: string | null, me: Me) => void; identities?: DevIdentity[]; auth?: ReturnType<typeof createAuth>;
 }) {
-  const [mode, setMode] = useState<Mode>("signin");
+  const inviteToken = useMemo(() => new URLSearchParams(window.location.hash.slice(1)).get("invite"), []);
+  const [mode, setMode] = useState<Mode>(inviteToken ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [google, setGoogle] = useState(false);
+  const [inviteOnly, setInviteOnly] = useState(false);
   const [error, setError] = useState<string | null>(takeRedirectError);
   const [busy, setBusy] = useState(false);
   const quick = [...identities].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
 
   useEffect(() => {
-    auth.config().then((c) => setGoogle(c.google)).catch(() => setGoogle(false));
+    auth.config().then((c) => { setGoogle(c.google); setInviteOnly(c.invite_only); }).catch(() => setGoogle(false));
   }, [auth]);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    auth.inspectInvitation(inviteToken).then((invite) => setEmail(invite.email)).catch(() => {
+      setError("This invitation link is invalid or has expired. Ask your workspace admin for a new one.");
+    });
+  }, [auth, inviteToken]);
 
   async function attempt(fn: () => Promise<void>, explain: (err: unknown) => string = authError) {
     setBusy(true);
@@ -111,7 +137,7 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
   function submitAccount(e: FormEvent) {
     e.preventDefault();
     attempt(async () => {
-      const who = mode === "signup" ? await auth.signup(email.trim(), password) : await auth.login(email.trim(), password);
+      const who = mode === "signup" ? await auth.signup(email.trim(), password, inviteToken ?? undefined) : await auth.login(email.trim(), password);
       onSignedIn(null, who);
     });
   }
@@ -127,8 +153,26 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
 
   const signup = mode === "signup";
   return (
-    <main className="grid min-h-screen place-items-center p-4">
-      <div className="grid w-full max-w-md gap-4 rounded-2xl border border-line bg-surface p-6 shadow-lg sm:p-8">
+    <main className="auth-layout">
+      <aside className="auth-story" aria-label="About your workspace">
+        <div className="auth-brand"><Logo /> Secure AI Platform <span>WORKSPACE</span></div>
+        <div className="auth-story-content">
+          <p className="eyebrow">A little clarity. A lot of possibility.</p>
+          <h2>Good questions.<br />Trusted answers.<br /><em>Your next idea.</em></h2>
+          <p>A thoughtful space for your knowledge, research, and everything you’re ready to discover.</p>
+          <div className="knowledge-art" aria-hidden="true">
+            <div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" />
+            <div className="art-node node-top">01 <span>Your documents</span></div>
+            <div className="art-center"><Logo /></div>
+            <div className="art-node node-bottom">02 <span>Connected insights</span></div>
+            <span className="art-spark spark-one" /><span className="art-spark spark-two" />
+          </div>
+        </div>
+        <div className="auth-footnote"><Logo /> Built around your privacy. Designed for your ideas.</div>
+      </aside>
+      <div className="auth-form-wrap">
+      <div className="auth-form grid w-full max-w-md gap-5">
+        <p className="eyebrow text-accent">YOUR PRIVATE WORKSPACE</p>
         <div className="flex items-center gap-2">
           <Logo />
           <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-accent">Secure AI Platform</p>
@@ -140,7 +184,7 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
           </p>
         </div>
 
-        <div role="tablist" aria-label="Account" className="grid grid-cols-2 gap-1 rounded-lg bg-surface-2 p-1">
+        {!inviteToken && <div role="tablist" aria-label="Account" className="grid grid-cols-2 gap-1 rounded-lg bg-surface-2 p-1">
           {(["signin", "signup"] as const).map((m) => (
             <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => switchMode(m)}
                     className={`rounded-md px-3 py-1.5 text-sm transition ${mode === m
@@ -148,9 +192,12 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
               {m === "signin" ? "Sign in" : "Sign up"}
             </button>
           ))}
-        </div>
+        </div>}
 
-        {google && (
+        {inviteToken && <p className="m-0 rounded-lg bg-ok-bg px-3 py-2 text-sm text-ok">You’re joining a shared workspace. Create an account for the invited email below.</p>}
+        {inviteOnly && !inviteToken && mode === "signup" && <p className="m-0 rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn">This workspace is invite-only. Use the invitation link from your workspace admin.</p>}
+
+        {google && !inviteToken && (
           <>
             {/* A full-page navigation: the server runs the Google redirect, so no Google script loads here. */}
             <a href="/v1/auth/google/start"
@@ -166,14 +213,14 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
         <form className="grid gap-3.5" onSubmit={submitAccount}>
           <Field label="Email">
             <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                   maxLength={64} required />
+                   maxLength={64} required readOnly={Boolean(inviteToken)} />
           </Field>
           <Field label="Password" hint={signup ? "At least 12 characters. A short phrase is easiest to remember." : undefined}>
             <input type="password" autoComplete={signup ? "new-password" : "current-password"} value={password}
                    onChange={(e) => setPassword(e.target.value)} minLength={signup ? 12 : 1} maxLength={128} required />
           </Field>
           <ErrorNote error={error} />
-          <Button variant="primary" className="w-full" disabled={busy || !email.trim() || !password}>
+          <Button variant="primary" className="w-full" disabled={busy || !email.trim() || !password || (inviteOnly && signup && !inviteToken)}>
             {busy ? "Please wait…" : signup ? "Create account" : "Sign in"}
           </Button>
         </form>
@@ -204,6 +251,8 @@ export function SignIn({ onSignedIn, identities = __DEV_IDENTITIES__, auth = cre
           </form>
         </details>
       </div>
+      <p className="auth-caption">Knowledge with boundaries. Possibility without the noise.</p>
+      </div>
     </main>
   );
 }
@@ -213,6 +262,7 @@ export default function App() {
   const [token, setToken] = useState<string | null>(() => readToken() || null);
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState<Tab>("knowledge");
+  const [demoJobId, setDemoJobId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(true);
   const client: Client = useMemo(() => createClient(token), [token]);
 
@@ -228,6 +278,7 @@ export default function App() {
     setToken(null);
     setMe(null);
     setTab("knowledge");
+    setDemoJobId(null);
   }
 
   if (restoring) return <main className="grid min-h-screen place-items-center p-4"><p className="animate-pulse text-muted">Restoring session…</p></main>;
@@ -238,30 +289,33 @@ export default function App() {
   const tabs = tabsFor(me);
   const active = tabs.some((t) => t.id === tab) ? tab : "knowledge";
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-line bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2.5 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2 font-bold"><Logo />Secure AI Platform</div>
-          <nav aria-label="Sections" className="order-last -mx-1 flex w-full gap-1 overflow-x-auto md:order-none md:mx-0 md:w-auto md:flex-1">
-            {tabs.map((t) => (
-              <button key={t.id} aria-current={active === t.id} onClick={() => setTab(t.id)}
-                      className={`shrink-0 rounded-lg px-3.5 py-1.5 transition ${active === t.id
-                        ? "bg-surface-2 font-semibold text-ink" : "text-muted hover:text-ink"}`}>{t.label}</button>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3 text-sm text-muted">
-            <span><strong className="text-ink">{me.user}</strong> · {me.tenant} · {me.role}</span>
-            <Button variant="ghost" onClick={signOut}>Sign out</Button>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-7xl p-4 sm:p-6">
-        {active === "knowledge" && <Knowledge client={client} me={me} />}
-        {active === "research" && <Research client={client} me={me} />}
+    <div className="workspace-layout">
+      <a href="#workspace-content" className="skip-link">Skip to content</a>
+      <aside className="workspace-sidebar">
+        <div className="sidebar-brand"><div className="brand-mark"><Logo /></div><div>Secure AI<span>ENGINEERING WORKSPACE</span></div></div>
+        <div className="workspace-switch"><span className="workspace-avatar">{me.tenant.slice(0, 2).toUpperCase()}</span><div><strong>{me.tenant}</strong><span>Private workspace</span></div></div>
+        <p className="sidebar-label">WORKSPACE</p>
+        <nav aria-label="Sections" className="workspace-nav">
+          {tabs.map((t) => <button key={t.id} aria-current={active === t.id ? "page" : undefined} onClick={() => setTab(t.id)} className={active === t.id ? "nav-item is-active" : "nav-item"}>
+            <SectionIcon id={t.id} /><span>{t.label}</span><span className="nav-arrow" aria-hidden="true">↗</span>
+          </button>)}
+        </nav>
+        <div className="sidebar-note"><Logo /><strong>A space you can trust.</strong><p>Your documents are scoped to your workspace and access groups.</p></div>
+        <div className="sidebar-user"><span className="user-avatar" aria-hidden="true">{me.user.slice(0, 1).toUpperCase()}</span><div><strong>{me.user}</strong><span>{me.role}</span></div><button onClick={signOut} aria-label="Sign out" title="Sign out"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M9 5H4v14h5 M10 12h11 M17 8l4 4-4 4" /></svg></button></div>
+      </aside>
+      <div className="workspace-body">
+      <header className="workspace-topbar"><div><span className="breadcrumb-root">Workspace</span><span aria-hidden="true">/</span><strong>{tabs.find(t => t.id === active)?.label}</strong></div><span className="privacy-pill"><Logo />Private by design</span></header>
+      <main id="workspace-content" className="workspace-content">
+        <section className="page-intro"><div><p className="eyebrow">{active === "knowledge" ? "A HOME FOR WHAT YOU KNOW" : "YOUR SECURE AI WORKSPACE"}</p><h1>{SECTION_INFO[active].title}</h1><p>{SECTION_INFO[active].description}</p></div><span className="page-emblem" aria-hidden="true"><SectionIcon id={active} /></span></section>
+        {active === "knowledge" && <Knowledge client={client} me={me} onResearch={id => { setDemoJobId(id); setTab("research"); }} />}
+        {active === "research" && <Research client={client} me={me} initialJobId={demoJobId} />}
         {active === "quality" && <Quality client={client} />}
         {active === "releases" && <Releases client={client} me={me} />}
         {active === "incidents" && <Incidents client={client} me={me} />}
+        {active === "workspace" && me.role === "admin" && <Workspace client={client} />}
+        <footer className="workspace-footer"><span>Secure AI Platform</span><span>Thoughtful research. Traceable decisions.</span></footer>
       </main>
+      </div>
     </div>
   );
 }

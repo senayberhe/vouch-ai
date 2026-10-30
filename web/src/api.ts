@@ -57,7 +57,7 @@ async function parse(res: Response): Promise<unknown> {
   }
 }
 
-export type AuthConfig = { password: boolean; google: boolean };
+export type AuthConfig = { password: boolean; google: boolean; invite_only: boolean };
 
 // Cookie-authenticated writes must carry this header; a cross-site page can't add it (see api.py).
 const CSRF = { "X-Requested-With": "capstone" };
@@ -81,8 +81,10 @@ async function call<T>(fetchImpl: Fetch, method: string, path: string, body: unk
 export function createAuth(fetchImpl: Fetch = (...args) => fetch(...args)) {
   return {
     config: () => call<AuthConfig>(fetchImpl, "GET", "/v1/auth/config", undefined, {}),
-    signup: (email: string, password: string) =>
-      call<Me>(fetchImpl, "POST", "/v1/auth/signup", { email, password }, CSRF),
+    signup: (email: string, password: string, invitation_token?: string) =>
+      call<Me>(fetchImpl, "POST", "/v1/auth/signup", { email, password, ...(invitation_token ? { invitation_token } : {}) }, CSRF),
+    inspectInvitation: (token: string) =>
+      call<{ email: string; role: string; expires_at: string }>(fetchImpl, "POST", "/v1/auth/invitations/inspect", { token }, CSRF),
     login: (email: string, password: string) =>
       call<Me>(fetchImpl, "POST", "/v1/auth/login", { email, password }, CSRF),
     logout: () => call<null>(fetchImpl, "POST", "/v1/auth/logout", undefined, CSRF),
@@ -100,6 +102,9 @@ export function createClient(token: string | null, fetchImpl: Fetch = (...args) 
 
   return {
     me: () => get<Me>("/v1/me"),
+    invitations: () => get<{ invitations: { email: string; role: string; expires_at: string; expired: boolean }[] }>("/v1/workspace/invitations").then(r => r.invitations),
+    invite: (email: string, role: "reader" | "editor" | "reviewer") =>
+      post<{ email: string; role: string; expires_at: string; invite_url: string }>("/v1/workspace/invitations", { email, role }),
     documents: () => get<{ documents: DocumentRow[] }>("/v1/documents").then((r) => r.documents),
     upload: (title: string, group: string, text: string) =>
       post<{ document_id: string; chunks: number; redactions: Record<string, number> }>("/v1/documents", { title, group, text }),

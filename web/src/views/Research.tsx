@@ -4,9 +4,9 @@ import { Badge, Button, Card, ErrorNote, Field, useAction, tw } from "../ui";
 
 const IN_FLIGHT = new Set(["queued", "running"]);
 
-export default function Research({ client, me }: { client: Client; me: Me }) {
+export default function Research({ client, me, initialJobId = null }: { client: Client; me: Me; initialJobId?: string | null }) {
   const [jobs, setJobs] = useState<JobRow[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialJobId);
   const list = useAction();
   const refresh = useCallback(() => list.run(() => client.jobs().then(setJobs)), [client, list.run]);
   useEffect(() => { refresh(); }, [refresh]);

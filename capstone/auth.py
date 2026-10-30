@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from datetime import timedelta, timezone
 from sqlalchemy import delete, select
-from .db import AuthSession, User, now
+from .db import AuthSession, User, WorkspaceMembership, now
 from .security import Principal
 
 SESSION_COOKIE = "capstone_session"
@@ -72,9 +72,13 @@ def new_user(email: str, *, password_hash=None, google_sub=None, name=None, veri
                 google_sub=google_sub, email_verified=verified)
 
 
-def principal_for(user: User) -> Principal:
-    # Admin of a one-person workspace. Research approval still needs a second, independent reviewer.
-    return Principal(tenant=user.tenant, user=user.email, groups=frozenset({WORKSPACE_GROUP}), role="admin")
+def principal_for(user: User, db=None) -> Principal:
+    membership = db.get(WorkspaceMembership, user.id) if db is not None else None
+    if membership is None:
+        # Existing accounts created before workspace memberships keep their original private workspace.
+        return Principal(tenant=user.tenant, user=user.email, groups=frozenset({WORKSPACE_GROUP}), role="admin")
+    return Principal(tenant=membership.tenant, user=user.email,
+                     groups=frozenset(json.loads(membership.groups_json)), role=membership.role)
 
 
 def _digest(token: str) -> str:

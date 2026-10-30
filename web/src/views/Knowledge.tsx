@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Answer, Client, DocumentRow, Me } from "../api";
 import { Button, Card, ErrorNote, Field, useAction, tw } from "../ui";
 
+import GuidedDemo from "./GuidedDemo";
+
 const LABELS: Record<string, string> = {
   EMAIL_ADDRESS: "email", PHONE_NUMBER: "phone", US_SSN: "SSN", CREDIT_CARD: "card number", IBAN_CODE: "IBAN", PERSON: "name",
 };
 
-export default function Knowledge({ client, me }: { client: Client; me: Me }) {
+export default function Knowledge({ client, me, onResearch }: { client: Client; me: Me; onResearch: (id: string) => void }) {
+  const [suggestion, setSuggestion] = useState<{ question: string; group: string } | null>(null);
+  const [demoAnswered, setDemoAnswered] = useState(false);
   const [docs, setDocs] = useState<DocumentRow[]>([]);
   const list = useAction();
   const refresh = useCallback(() => list.run(() => client.documents().then(setDocs)), [client, list.run]);
@@ -14,45 +18,57 @@ export default function Knowledge({ client, me }: { client: Client; me: Me }) {
   const canUpload = (me.role === "editor" || me.role === "admin") && me.groups.length > 0;
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-2">
+    <div className="grid gap-6">
+      <GuidedDemo client={client} me={me} docs={docs} onLoaded={refresh} onQuestion={(question, group) => { setSuggestion({ question, group }); setDemoAnswered(false); }} answered={demoAnswered} onResearch={onResearch} />
+      <div className="grid items-start gap-5 lg:grid-cols-2">
       <div className="grid content-start gap-5">
-        <AskCard client={client} me={me} />
+        <AskCard client={client} me={me} suggestion={suggestion} onAnswered={() => setDemoAnswered(true)} />
         {canUpload && <UploadCard client={client} me={me} onUploaded={refresh} />}
       </div>
       <Card title="Documents you can access" actions={<Button variant="ghost" onClick={refresh}>Refresh</Button>}>
         <ErrorNote error={list.error} />
         {me.groups.length === 0 && <p className="text-muted">Your identity has no document groups, so nothing is visible.</p>}
-        {docs.length === 0 && me.groups.length > 0 && <p className="text-muted">No documents yet.</p>}
+        {docs.length === 0 && me.groups.length > 0 && <div className="empty-state"><span className="empty-icon" aria-hidden="true"><svg width="25" height="29" viewBox="0 0 24 28" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M4 2h10l6 6v18H4z M14 2v7h6 M8 14h8 M8 19h6" /></svg></span><h3>{list.busy ? "Finding your documents…" : "A fresh space for your knowledge"}</h3><p>{canUpload ? "Add your first document. Your next answer starts with a trusted source." : "Documents shared with your groups will appear here."}</p></div>}
         <ul className={tw.rows}>
           {docs.map((d) => (
-            <li className={tw.row} key={d.document_id}>
-              <strong>{d.title}</strong>
-              <span className="text-muted">{d.group} · {d.owner} · {new Date(d.created_at).toLocaleString()}</span>
+            <li className="document-item" key={d.document_id}>
+              <span className="document-symbol" aria-hidden="true"><svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 2h9l5 5v15H5z M14 2v6h5 M9 12h6 M9 16h6" /></svg></span>
+              <div><strong>{d.title}</strong><p>{d.group} · {d.owner}<br />{new Date(d.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p></div>
             </li>
           ))}
         </ul>
       </Card>
+      </div>
     </div>
   );
 }
 
-function AskCard({ client, me }: { client: Client; me: Me }) {
+function AskCard({ client, me, suggestion, onAnswered }: { client: Client; me: Me; suggestion: { question: string; group: string } | null; onAnswered: () => void }) {
   const [question, setQuestion] = useState("");
   const [group, setGroup] = useState("");
   const [answer, setAnswer] = useState<Answer | null>(null);
   const ask = useAction();
+  useEffect(() => {
+    if (suggestion) {
+      setQuestion(suggestion.question);
+      setGroup(suggestion.group);
+      setAnswer(null);
+      document.getElementById("knowledge-question")?.focus();
+    }
+  }, [suggestion]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const result = await ask.run(() => client.ask(question.trim(), group || undefined));
-    if (result) setAnswer(result);
+    if (result) { setAnswer(result); if (question.trim() === suggestion?.question && group === suggestion.group) onAnswered(); }
   }
 
   return (
     <Card title="Ask your documents">
+      <p className="question-hint">A question, a few trusted sources, a clearer picture.</p>
       <form className={tw.form} onSubmit={submit}>
         <Field label="Question">
-          <input value={question} maxLength={3000} onChange={(e) => setQuestion(e.target.value)} required
+          <input id="knowledge-question" value={question} maxLength={3000} onChange={(e) => setQuestion(e.target.value)} required
                  placeholder="When should travel receipts be submitted?" />
         </Field>
         <Field label="Group">

@@ -201,9 +201,11 @@ Only after receiving appropriate permissions and checking data-handling terms:
 
 ```bash
 export MODEL_BACKEND=openai
-export OPENAI_MODEL='YOUR_APPROVED_MODEL_ID'
+export OPENAI_MODEL='gpt-5.4-mini-2026-03-17'   # pin a dated snapshot; evaluated in docs/EVALUATION.md
 export OPENAI_API_KEY='READ_FROM_SECRET_MANAGER_NOT_CODE'
 ```
+
+Both `/v1/rag/query` and the research worker then write cited answers with the model; the response's `mode` says which writer answered (`llm:<model>`). The model may decline with a fixed abstention when the passages don't answer the question. If the call times out, errors, or returns output that fails validation, the query endpoint answers with the access-scoped extract instead (`mode: offline-extractive-fallback`), and a research job is retried. `/metrics` exposes `capstone_llm_calls_total{outcome}`, `capstone_llm_tokens_total{kind}` and `capstone_llm_latency_seconds` per model for cost and latency budgets. Changing the prompt invalidates earlier release evidence and the committed live eval; re-run `capstone.answer_eval` and `capstone.injection_eval` with `--writer openai`.
 
 A version's registered `provider_model` overrides the default model for jobs routed to that version. The writer sends only authorized source passages (with brackets neutralised so a document cannot forge a citation) and the bounded question, uses no model-requested tools, requests short generated output, and rejects unrecognized citation IDs. This is not proof of semantic factuality or prompt-injection resistance.
 
@@ -249,3 +251,9 @@ For public deployment, provision DNS, TLS, load balancing, a real identity provi
 9. Start several API/worker replicas against an empty database at once; verify they all come up (no checkpoint-setup race).
 
 Drills 7 and 8, and the author and replay parts of drill 6, were run against the Compose stack during development. Drills 1, 3–6 and 9 are covered by automated tests (9 against a live PostgreSQL). Drill 2 has not been run: Redis was not available on the development machine. Stop and investigate if any invariant fails. Do not remediate by weakening authorization or skipping test gates.
+
+## CI verification evidence
+
+On pushes and pull requests, `.github/workflows/ci.yml` provisions disposable PostgreSQL 17 and Redis 7 services and runs the Python suite with both integration URLs configured. `scripts/check_integration_report.py` rejects missing, skipped, or failed required PostgreSQL/Redis/runtime checks, including PostgreSQL checkpoint recovery. The workflow also runs the frozen holdout with hash embeddings and saves its reports alongside the pytest JUnit XML as `verification-<run-id>`. Semantic-model scores are measured separately using cached model weights.
+
+Release attestation now waits for both the Python and web jobs. A local passing suite with infrastructure skips is not a passing CI infrastructure run. These workflow changes must run on GitHub before claiming that verification passed.

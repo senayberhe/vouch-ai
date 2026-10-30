@@ -1,5 +1,15 @@
 # Final capstone verification report
 
+## October 29, 2026 review
+
+- Offline Python suite after holdout and CI updates: **182 passed, 4 skipped**; skips require PostgreSQL or Redis.
+- Web UI: **20 tests passed**; TypeScript and Vite production build passed.
+- Answer-quality gates now hold for missing required metrics and partially judged answers. Invalid model outputs count against citation validity. Two regression tests cover these cases.
+- README verification claims now distinguish saved live evaluations from checks run offline.
+- No paid model calls, infrastructure integration runs, or GitHub Actions runs were performed in this review. Earlier infrastructure results below are historical.
+- Frozen holdout: 30 questions over 10 new documents, evaluated with hash embeddings and cached MiniLM weights without retuning. MiniLM hybrid Recall@3 1.000, MRR 1.000, abstention 0.667 (8/12), zero access leaks. Results: `artifacts/rag_holdout.json` and `.md`.
+- CI now retains pytest/holdout reports and rejects missing or skipped required infrastructure checks. Regression tests exercise passing, skipped, failed, and missing reports. Release signing waits for the web job as well as Python checks. These workflow changes have not yet executed on GitHub.
+
 **Executed:** October 25, 2026 · Python 3.13 · `uv sync --extra test --extra production`.
 
 ## Executed checks

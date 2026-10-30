@@ -9,10 +9,22 @@ const target = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8000";
 
 type DevIdentity = { user: string; role: string; tenant: string; token: string };
 
+// True when the dev server was started with a --host that other machines can reach.
+function hostExposed(argv: string[]): boolean {
+  const index = argv.indexOf("--host");
+  const host = index === -1
+    ? argv.find((arg) => arg.startsWith("--host="))?.slice("--host=".length)
+    : argv[index + 1];
+  if (index === -1 && host === undefined) return false;
+  return !["127.0.0.1", "localhost", "::1"].includes(host ?? "");
+}
+
 // `npm run dev` only: offer the identities from ../.env as one-click sign-in buttons.
 // Builds and tests get an empty list, so no token can reach a bundle that is shipped.
+// An exposed dev server gets an empty list too, so tokens stay off the network.
 function devIdentities(mode: string, command: string): DevIdentity[] {
   if (command !== "serve" || mode !== "development" || process.env.VITE_DEV_SIGNIN === "0") return [];
+  if (hostExposed(process.argv)) return [];
   const raw = loadEnv(mode, "..", "CAPSTONE_TOKENS_JSON").CAPSTONE_TOKENS_JSON;
   if (!raw) return [];
   try {

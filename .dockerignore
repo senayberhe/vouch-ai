@@ -1,4 +1,7 @@
 .env
+.env.*
+.secrets
+*.pem
 .venv
 .git
 .pytest_cache

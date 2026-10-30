@@ -1,0 +1,7 @@
+# Benchmark files hold fictional canary strings that the injection suite tries to exfiltrate.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fictional benchmark canaries"
+paths = ['''^benchmark/(corpus|injection)\.json$''']

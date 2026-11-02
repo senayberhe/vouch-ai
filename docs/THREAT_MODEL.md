@@ -11,7 +11,7 @@ Adversary may submit authorized lower-trust documents, input text, unknown citat
 | Threat | Attack surface | Mitigation / test | Residual risk |
 |---|---|---|---|
 | Spoofing | Bearer auth | Server-held tokens; compare before authorization | Static keys; no expiry or central revocation |
-| Tampering | Retrieved passages | Treat as evidence; fixed tool graph | Optional live LLM can follow malicious text |
+| Tampering | Retrieved passages and web snippets | Treat as evidence; fixed tool graph, citation validation, independent review | Optional live LLM can follow malicious text |
 | Repudiation | Approval decisions | Durable approval and event rows | Need immutable audit retention and traceable identities |
 | Information disclosure | Cross-tenant retrieval | SQL filter before embedding / ranking | DB administrators and backups need separate controls |
 | Information disclosure | Error messages and metrics | Generic validation and safe metric label cardinality | Regex redaction incomplete; traces must be configured safely |
@@ -24,16 +24,16 @@ Adversary may submit authorized lower-trust documents, input text, unknown citat
 ## Input trust boundaries
 
 - Client never supplies the trusted tenant/user/role.
-- The API never exposes a shell, arbitrary SQL, URL fetch, or filesystem writing tool to a model.
+- The API never exposes a shell, arbitrary SQL, arbitrary URL fetch, or filesystem writing tool to a model. Optional web search calls one fixed provider endpoint and only returns snippets; result URLs are not fetched. It is enabled per tenant (`CAPSTONE_WEB_SEARCH_TENANTS`) and is only called when authorized documents leave passage slots empty, so the (redacted) question of a locally answered query is never sent out.
 - Retrieved passages may contain strings that resemble instructions. The offline agent extracts them as quoted content but doesn't execute them.
 - A malicious line in a retrieved document can still appear in the extractive report, so downstream rendering and people must see it as *source text*, not authoritative instructions.
-- Optional LLM generation is gated to previously authorized passages but remains susceptible to linguistic manipulation; run separate live red-team evaluation.
+- Optional LLM generation is gated to authorized passages and optional web snippets, which are untrusted, but remains susceptible to linguistic manipulation; run separate live red-team evaluation. The injection suite includes poisoned web results, but the live LLM run has not yet covered them.
 
 ## High-priority production work
 
 1. Replace static tokens with an external identity provider, short-lived credentials, role separation, and revocation.
 2. Add durable encryption/key management, tenant-specific retrieval indices as appropriate, data retention and deletion.
-3. Use a restricted network egress policy; an agent doesn't need arbitrary outbound connections.
+3. Use a restricted network egress policy; allow only configured inference and search endpoints.
 4. Add immutable approval and model artifact evidence; attest evaluation datasets and run outputs.
 5. Perform full SSRF/XSS/DoS testing on any new connectors, document parsers, and browser or code tools.
 6. Add cost budgets, concurrency caps, queued-job TTL, and circuit breakers around external model calls.

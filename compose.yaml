@@ -34,12 +34,20 @@ services:
       CAPSTONE_ROUTING_SECRET: ${CAPSTONE_ROUTING_SECRET:?Set CAPSTONE_ROUTING_SECRET}
       CAPSTONE_RELEASE_TENANT: ${CAPSTONE_RELEASE_TENANT:?Set CAPSTONE_RELEASE_TENANT}
       MODEL_BACKEND: ${MODEL_BACKEND:-offline}
+      CAPSTONE_EMBEDDING_MODEL: ${CAPSTONE_EMBEDDING_MODEL:-auto}
+      CAPSTONE_EMBEDDING_OFFLINE: ${CAPSTONE_EMBEDDING_OFFLINE:-1}
       CAPSTONE_GRAPH: langgraph
       # Durable LangGraph checkpoints live in the same PostgreSQL database (PostgresSaver).
       CAPSTONE_ATTESTATION_KEYS: ${CAPSTONE_ATTESTATION_KEYS:-{}}
       CAPSTONE_ARTIFACT_ROOT: /models
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      # Inside a container 127.0.0.1 is the container itself; Ollama runs on the Docker host.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      CAPSTONE_WEB_SEARCH_TENANTS: ${CAPSTONE_WEB_SEARCH_TENANTS:-}
       # Accounts: the URL people open (https:// turns on Secure cookies) and optional Google sign-in.
       CAPSTONE_PUBLIC_URL: ${CAPSTONE_PUBLIC_URL:-http://127.0.0.1:8090}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -50,6 +58,8 @@ services:
   api:
     build: .
     environment: *env
+    # Lets OLLAMA_URL reach a host-side Ollama on Linux too (Docker Desktop defines it already).
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       # Approved artifact store, read-only: canary start re-hashes the registered bytes here.
       - ./models:/models:ro
@@ -72,6 +82,7 @@ services:
     build: .
     command: ["python", "-m", "capstone.worker"]
     environment: *env
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       schema: {condition: service_completed_successfully}
       redis: {condition: service_healthy}

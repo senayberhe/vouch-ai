@@ -10,7 +10,7 @@ export class ApiError extends Error {
 
 export type Me = { user: string; tenant: string; role: string; groups: string[]; release_operator: boolean };
 export type DocumentRow = { document_id: string; title: string; group: string; owner: string; created_at: string };
-export type Citation = { citation_id: string; document_id: string; title: string };
+export type Citation = { citation_id: string; document_id: string | null; title: string; url?: string | null };
 export type Answer = { answer: string; citations: Citation[]; mode: string };
 export type JobStatus = "queued" | "running" | "pending_review" | "approved" | "rejected" | "failed";
 export type JobRow = {

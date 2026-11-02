@@ -89,7 +89,11 @@ function AskCard({ client, me, suggestion, onAnswered }: { client: Client; me: M
             <>
               <p className={tw.label}>Sources</p>
               <ul className="m-0 list-disc pl-5">
-                {answer.citations.map((c) => <li key={c.citation_id}>{c.title} <code>{c.citation_id}</code></li>)}
+                {answer.citations.map((c) => <li key={c.citation_id}>
+                  {c.url?.startsWith("https://")
+                    ? <a href={c.url} target="_blank" rel="noopener noreferrer">{c.title}</a>
+                    : c.title} <code>{c.citation_id}</code>
+                </li>)}
               </ul>
             </>
           )}

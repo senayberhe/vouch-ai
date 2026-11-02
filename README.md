@@ -1,4 +1,4 @@
-# Secure AI Engineering Platform
+# Vouch AI
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
@@ -9,7 +9,7 @@
 
 **Multi-tenant RAG and agent research with security built in.** Tenant-isolated retrieval, a LangGraph research agent that pauses for independent human review, signed model releases with canary rollback, and local PII redaction. It runs fully offline by default, with no API key needed.
 
-*Final capstone of the Complete AI Engineer & Safe AI Engineering course (lessons 1–12).*
+*Final capstone of the Complete AI Engineer & Safe AI Engineering course (lessons 1–12). The code still uses its original name, so commands and settings below say `capstone` and `CAPSTONE_*`.*
 
 <details>
 <summary>Earlier release-management screenshot</summary>
@@ -24,7 +24,7 @@ This screenshot predates the current green sidebar and guided demo.
 
 ## Why this project exists
 
-An AI answer is useful only when the right person can access its evidence, understand its sources, and review the result. This capstone brings retrieval, research workflows, model evaluation, and release operations into one application, with explicit safeguards around each step.
+An AI answer is useful only when the right person can access its evidence, understand its sources, and review the result. Vouch AI brings retrieval, research workflows, model evaluation, and release operations into one application, with explicit safeguards around each step.
 
 | Workspace section | What you can do |
 |---|---|
@@ -42,10 +42,13 @@ Available sections depend on your role and release-operator permissions.
 |---|---|
 | Retrieval, 61 labeled questions (MiniLM hybrid) | Recall@3 **0.943**, MRR **0.929** |
 | Cross-tenant leaks across all retrieval modes | **0** |
-| Prompt-injection suite, offline writer and live `gpt-5.4-mini` | **0 of 30** attacks succeeded (each) |
+| Prompt-injection suite, offline writer (37 cases, incl. 7 poisoned web results) | **0 of 37** attacks succeeded |
+| Prompt-injection suite, live `gpt-5.4-mini` (the 30 document cases) | **0 of 30** attacks succeeded |
 | Live LLM answers, 61 questions (judge `gpt-5.5`, calibrated on 16 human labels) | Faithful **97%**, correct **100%**, declines unanswerable **96%** |
-| Python tests, no external services or paid API calls | **182 passed**, 4 skipped (need PostgreSQL/Redis) |
+| Python tests, no external services or paid API calls | **208 passed**, 4 skipped (need PostgreSQL/Redis) |
 | Frontend tests and production build | **23 passed**; TypeScript + Vite build passed |
+
+All results were measured with web search off. Optional web search (below) lets questions your documents cannot answer be answered from web snippets, so the abstention numbers do not apply to tenants that enable it.
 
 Details and caveats: [`docs/EVALUATION.md`](docs/EVALUATION.md) and [`TEST_REPORT.md`](TEST_REPORT.md).
 
@@ -60,8 +63,9 @@ A separate [30-question holdout](benchmark/holdout/README.md), evaluated without
 - **Canary routing and rollback.** Users are assigned to a version and stay on it. High error rates roll the canary back automatically and open an incident.
 - **Privacy.** PII is redacted on this machine before storage and before any outbound LLM call (regex by default, Presidio as an option).
 - **Quality gates.** Precision, recall and F1 with Wilson intervals per group. The release is held if any subgroup fails, even when the overall average passes.
-- **Prompt-injection suite.** 30 attacks in 7 categories run through the real upload, retrieval, worker and review paths. Tests confirm each defense is what stops its attacks.
+- **Prompt-injection suite.** 37 attacks in 7 categories, delivered as uploaded documents or as poisoned web search results, run through the real upload, retrieval, worker and review paths. Tests confirm each defense is what stops its attacks.
 - **Accounts.** Sign up with email and password or Google. Each account gets a private workspace. Passwords are hashed with scrypt, sessions are `HttpOnly` cookies that can be revoked, and Google sign-in uses the server-side OIDC flow with PKCE.
+- **Workspace invitations.** Admins create expiring, single-use links for a named email and a non-admin role. Only a hash of each link is stored, and `CAPSTONE_INVITE_ONLY=1` blocks uninvited new accounts. An invitation doesn't prove email ownership, so a later Google sign-in by that address returns the account to its own private workspace.
 - **Web UI.** React + TypeScript workspace with green sidebar navigation, responsive layouts, system light/dark colors, keyboard focus indicators, and a redesigned sign-in screen. The nginx deployment serves it behind a strict Content-Security-Policy.
 - **Guided demo.** Load fictional policies, try a suggested question, inspect citations, and open a real research task for independent review.
 - **One-command development.** Start the frontend, API, and research worker together with `./scripts/dev.sh`; Ctrl+C stops all three.
@@ -94,6 +98,8 @@ Run these commands from the repository root. You need Python 3.11+, `uv`, and No
 ### First-time setup
 
 ```bash
+git clone https://github.com/senayberhe/vouch-ai.git
+cd vouch-ai
 uv sync --extra test --extra production
 (cd web && npm ci)
 ```
@@ -211,7 +217,7 @@ npm test
 npm run build
 ```
 
-Sign in with an account or a token from `CAPSTONE_TOKENS_JSON`. Google sign-in appears only when configured. Sign-in, token handling and the endpoints the UI uses: [`docs/WEB_UI.md`](docs/WEB_UI.md).
+Sign in with an account or a token from `CAPSTONE_TOKENS_JSON`. **Continue with Google** appears only after you add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env`; setup steps are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md#3a-accounts-and-google-sign-in). Sign-in, token handling and the endpoints the UI uses: [`docs/WEB_UI.md`](docs/WEB_UI.md).
 
 ## Using the API
 
@@ -238,6 +244,7 @@ Step-by-step `curl` examples (upload, ask, submit a research job, review it, the
 ```bash
 uv run pytest -q
 (cd web && npm test && npm run build)
+gitleaks git . --config .gitleaks.toml --redact   # optional secret scan; the allowlist covers fictional benchmark canaries
 ```
 
 The combined launcher’s startup, frontend-to-API routing, and Ctrl+C cleanup were also smoke-tested locally. The redesigned screens and guided demo have automated interaction coverage; visual browser verification remains pending.
@@ -260,6 +267,8 @@ Local scores are not evidence of live RAG factuality, model safety, legal fairne
 | [`docs/WEB_UI.md`](docs/WEB_UI.md) | Web UI features, sign-in and security notes |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Setup, keys, CI, rollout, backups, failure drills |
 | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | STRIDE-based security analysis and control limits |
+| [`docs/WORKSPACE_INVITATIONS.md`](docs/WORKSPACE_INVITATIONS.md) | Invitation links, invite-only mode and current limits |
+| [`docs/INTERNAL_PILOT_PLAN.md`](docs/INTERNAL_PILOT_PLAN.md) | Scope, prerequisites and stop conditions for a limited pilot |
 | [`docs/EVALUATION.md`](docs/EVALUATION.md) | Benchmark method and results |
 | [`docs/FILE_BY_FILE.md`](docs/FILE_BY_FILE.md) | Walkthrough of every source, test and deployment file |
 | [`docs/EXERCISES.md`](docs/EXERCISES.md) | Progressive coding challenges with worked answers |
@@ -280,6 +289,7 @@ Local scores are not evidence of live RAG factuality, model safety, legal fairne
 - **PII.** Redaction reduces exposure but does not detect everything.
 - **Retrieval.** The default embedding is a lexical hash baseline, and the semantic model is opt-in. Its development-benchmark similarity cutoff was tuned on that same set; the separate 30-question holdout was evaluated without retuning and has AI-assisted labels awaiting independent human review.
 - **Releases.** Canary telemetry is operator-supplied, though release evidence is CI-signed. The re-hash at canary time doesn't stop the model file from being swapped later while it is serving. Signing keys are file-based, not stored in an HSM.
+- **Accounts.** Password accounts have no email verification or password reset. Each account belongs to one workspace, the UI can't remove a member yet, and an invited person who later signs in with Google on the same email moves to a private workspace and can't be re-invited.
 - **Operations.** The schema uses `create_all()`, not migrations. Static bearer tokens stand in for a real identity provider. Worker leases and fencing protect database results, but they can't make external model calls exactly-once.
 
 ## License

@@ -180,7 +180,12 @@ def extract_report(question: str, evidence: list[dict]) -> tuple[str, list[str]]
     if not evidence:
         return "No supporting evidence found in authorized documents.", []
     # Sources are untrusted: a bracketed "[other:c0]" inside a passage must not look like a citation.
-    lines = [f"{_unbracket(e['title'])}: {_unbracket(e['text'])} [{e['citation_id']}]" for e in evidence]
+    lines = []
+    for e in evidence:
+        source = _unbracket(e['title'])
+        if e.get("url"):
+            source += f" ({_unbracket(e['url'])})"
+        lines.append(f"{source}: {_unbracket(e['text'])} [{e['citation_id']}]")
     return "Authorized source extracts (not generative synthesis):\n" + "\n".join(lines), [e["citation_id"] for e in evidence]
 
 

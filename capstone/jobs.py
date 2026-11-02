@@ -62,7 +62,7 @@ def recover_expired(session, max_attempts=3):
     return len(expired)
 
 
-def finish_job(session, claimed: dict, engine: str = "offline", writer=None, graph=None) -> bool:
+def finish_job(session, claimed: dict, engine: str = "offline", writer=None, graph=None, searcher=None) -> bool:
     """Run research for a claimed job. With a durable `graph`, the thread stops at its review
     interrupt and is checkpointed; a retried job reuses that checkpoint instead of re-running."""
     principal = Principal(claimed["tenant"], claimed["owner"], claimed["groups"], "reader")
@@ -72,7 +72,8 @@ def finish_job(session, claimed: dict, engine: str = "offline", writer=None, gra
             if not result["interrupted"]:
                 raise ValueError("Thread did not reach review")
         else:
-            result = research(session, principal, claimed["question"], engine=engine, group=claimed.get("group"), writer=writer)
+            result = research(session, principal, claimed["question"], engine=engine,
+                              group=claimed.get("group"), writer=writer, searcher=searcher)
         if not result.get("verified"):
             raise ValueError("Invalid citations")
     except Exception:

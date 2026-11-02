@@ -1,5 +1,12 @@
 # Final capstone verification report
 
+## November 2, 2026 review: local models and web search
+
+- Offline Python suite: **208 passed, 4 skipped**; skips require PostgreSQL or Redis (not run in this review).
+- Web UI: **23 tests passed**; TypeScript and Vite production build passed.
+- New `tests/test_web_and_local_models.py` (25 tests): Brave adapter failures, size cap, HTTPS-only results and redaction; per-tenant opt-in; web results only filling empty passage slots; Ollama writer citation checks and local-only URLs; `WriterPool` routing by release version; `auto` embedder fallback; durable graph drafting with the job's release model.
+- Prompt-injection suite, offline writer: **37 cases, 37 valid trials, 0 successful attacks**, including 7 poisoned web results. No paid model calls were made, so the live `gpt-5.4-mini` result still covers only the 30 document cases.
+
 ## October 29, 2026 review
 
 - Offline Python suite after holdout and CI updates: **182 passed, 4 skipped**; skips require PostgreSQL or Redis.

@@ -17,13 +17,15 @@ class ResearchState(TypedDict, total=False):
     verified: bool
 
 
-def build_functions(session, principal, group=None, writer=None):
+def build_functions(session, principal, group=None, writer=None, searcher=None):
     def plan(state: ResearchState):
         return {"plan": ["Search authorized chunks", "Build evidence extract",
                          "Verify source IDs", "Request independent review"]}
 
     def search(state: ResearchState):
-        return {"evidence": retrieve(session, principal, state["question"], group=group)}
+        from .web_search import with_web
+        evidence = retrieve(session, principal, state["question"], group=group)
+        return {"evidence": with_web(evidence, state["question"], principal.tenant, searcher)}
 
     def draft(state: ResearchState):
         report, citations = extract_report(state["question"], state.get("evidence", []))
@@ -42,8 +44,8 @@ def build_functions(session, principal, group=None, writer=None):
     return plan, search, draft, verify
 
 
-def research(session, principal, question: str, engine: str = "offline", group=None, writer=None) -> ResearchState:
-    nodes = build_functions(session, principal, group, writer)
+def research(session, principal, question: str, engine: str = "offline", group=None, writer=None, searcher=None) -> ResearchState:
+    nodes = build_functions(session, principal, group, writer, searcher)
     initial: ResearchState = {"question": question}
     if engine == "offline":
         state = dict(initial)
@@ -76,12 +78,13 @@ class DurableState(ResearchState, total=False):
     owner: str
     groups: list[str]
     group: str | None
+    model_version: str | None
     decision: str
     reviewed_by: str
     final_status: str
 
 
-def build_durable_graph(session_factory, checkpointer, writer=None):
+def build_durable_graph(session_factory, checkpointer, writer=None, searcher=None):
     """plan -> retrieve -> draft -> verify -> review (interrupt) -> finalize, checkpointed per thread.
 
     Nodes after the interrupt are pure (no external side effects), so replaying a resume after a
@@ -98,7 +101,12 @@ def build_durable_graph(session_factory, checkpointer, writer=None):
     def with_session(node):
         def run(state):
             with session_factory() as session:
-                plan, search, draft, verify = build_functions(session, principal(state), state.get("group"), writer)
+                # A WriterPool picks the job's release model; only the draft node needs a writer.
+                active_writer = writer
+                if node == "draft" and hasattr(writer, "for_version"):
+                    active_writer = writer.for_version(session, state.get("model_version"))
+                plan, search, draft, verify = build_functions(session, principal(state), state.get("group"),
+                                                               active_writer, searcher)
                 return {"plan": plan, "search": search, "draft": draft, "verify": verify}[node](state)
         return run
 
@@ -134,7 +142,8 @@ def run_until_review(graph, job: dict) -> dict:
     snapshot = graph.get_state(config)
     if snapshot.next != ("review",):
         graph.invoke({"question": job["question"], "tenant": job["tenant"], "owner": job["owner"],
-                      "groups": sorted(job["groups"]), "group": job.get("group")}, config)
+                      "groups": sorted(job["groups"]), "group": job.get("group"),
+                      "model_version": job.get("model_version")}, config)
         snapshot = graph.get_state(config)
     return {**snapshot.values, "interrupted": snapshot.next == ("review",)}
 

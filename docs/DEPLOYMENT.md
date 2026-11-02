@@ -56,7 +56,10 @@ SQLite is fine for the offline tutorial and runs with foreign keys enforced so t
 | `CAPSTONE_ARTIFACT_ROOT` | Approved artifact store; canary start re-hashes registered files here |
 | `CAPSTONE_PORT`, `CAPSTONE_WEB_PORT` | Host ports for the Compose API (default 8000) and web UI (default 8090) |
 | `CAPSTONE_GRAPH` | `langgraph` (durable checkpoints) or `offline` |
-| `CAPSTONE_EMBEDDING_MODEL` | Optional approved Sentence Transformers model; default is the offline hash baseline |
+| `CAPSTONE_EMBEDDING_MODEL` | `auto` prefers cached MiniLM weights, with an offline hash fallback; explicit approved model names also work |
+| `MODEL_BACKEND` | `offline`, `openai`, or `ollama`; offline remains extractive |
+| `BRAVE_SEARCH_API_KEY` | Optional key enabling bounded web search in direct answers and research jobs |
+| `CAPSTONE_WEB_SEARCH_TENANTS` | Comma-separated tenants allowed to use web search; required when the key is set |
 | `CAPSTONE_PII_DETECTOR` | `regex` (default) or `presidio` (local NER; `privacy` extra). An unknown or uninstallable detector fails at startup |
 
 ## 3. Docker Compose integration
@@ -193,7 +196,7 @@ export CAPSTONE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 uv run python -m capstone.rag_benchmark      # writes artifacts/rag_benchmark.{json,md}
 ```
 
-Only models on `APPROVED_MODELS` load, from the local cache unless `CAPSTONE_EMBEDDING_OFFLINE=0`. Vectors are cached per chunk and model at upload. The Docker image does not include the `semantic` extra, so containers use the hash baseline unless you add it. Results and their caveats are in `docs/EVALUATION.md`.
+Only models on `APPROVED_MODELS` load, from the local cache unless `CAPSTONE_EMBEDDING_OFFLINE=0`. Vectors are cached per chunk and model at upload. The standard Docker image does not include the `semantic` extra, so Compose currently uses the hash fallback unless you build an image with that extra and make weights available. Results and their caveats are in `docs/EVALUATION.md`.
 
 ## 7. Optional live LLM writer
 
@@ -208,6 +211,12 @@ export OPENAI_API_KEY='READ_FROM_SECRET_MANAGER_NOT_CODE'
 Both `/v1/rag/query` and the research worker then write cited answers with the model; the response's `mode` says which writer answered (`llm:<model>`). The model may decline with a fixed abstention when the passages don't answer the question. If the call times out, errors, or returns output that fails validation, the query endpoint answers with the access-scoped extract instead (`mode: offline-extractive-fallback`), and a research job is retried. `/metrics` exposes `capstone_llm_calls_total{outcome}`, `capstone_llm_tokens_total{kind}` and `capstone_llm_latency_seconds` per model for cost and latency budgets. Changing the prompt invalidates earlier release evidence and the committed live eval; re-run `capstone.answer_eval` and `capstone.injection_eval` with `--writer openai`.
 
 A version's registered `provider_model` overrides the default model for jobs routed to that version. The writer sends only authorized source passages (with brackets neutralised so a document cannot forge a citation) and the bounded question, uses no model-requested tools, requests short generated output, and rejects unrecognized citation IDs. This is not proof of semantic factuality or prompt-injection resistance.
+
+For local synthesis, install Ollama separately, pull a model, then set `MODEL_BACKEND=ollama`, `OLLAMA_MODEL`, and `OLLAMA_URL`. Compose defaults to `http://host.docker.internal:11434` (mapped to the host on Linux too), so Ollama running on the Docker host works without changes. `OLLAMA_URL` must point at this machine or the Docker host. Local calls use Ollama's chat endpoint, redact PII again, and apply the same citation-ID checks. For a self-hosted OpenAI-compatible server such as vLLM, set `OPENAI_BASE_URL` to its HTTPS endpoint (or a local HTTP endpoint); `provider_model` selects the model served there. Release routing changes which provider model receives requests, but this application does not load or execute the registered artifact itself. The inference server must be configured separately to serve the exact registered artifact.
+
+### Optional web search
+
+Set `BRAVE_SEARCH_API_KEY` and `CAPSTONE_WEB_SEARCH_TENANTS` in the API and worker environment. Only the listed tenants use web search, and only when their own authorized documents fill fewer than three passages; snippets fill the remaining slots, so the extractive answer and LLM writers see the same sources. The query is locally redacted and sent to Brave's fixed HTTPS endpoint, and snippets are redacted on return. Returned URLs are shown as citations but never fetched by the agent. Leave the key unset to keep all research document-only. Published evaluation results were measured with web search off; questions the documents cannot answer may now be answered from the web instead of declined.
 
 Use synthetic/redacted documents for initial tests. Enforce token budgets, tenant-level spend limits, output controls, security evaluations and explicit data-retention review before connecting real private content.
 

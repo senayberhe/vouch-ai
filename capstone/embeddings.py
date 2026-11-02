@@ -6,6 +6,7 @@ only the query is embedded at search time.
 """
 from __future__ import annotations
 import hashlib
+import logging
 import os
 import threading
 import numpy as np
@@ -16,6 +17,8 @@ APPROVED_MODELS = {
     "sentence-transformers/all-mpnet-base-v2": 768,
 }
 HASH_MODEL = "hash-128"
+DEFAULT_SEMANTIC_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+log = logging.getLogger(__name__)
 
 
 class HashEmbedder:
@@ -61,11 +64,20 @@ _lock = threading.Lock()
 
 
 def get_embedder(name: str | None = None):
-    """Process-wide embedder, loaded once. Name from CAPSTONE_EMBEDDING_MODEL (default: hash baseline)."""
+    """Load the approved MiniLM model when its package and weights are cached; otherwise stay offline."""
     name = name or os.getenv("CAPSTONE_EMBEDDING_MODEL") or HASH_MODEL
     with _lock:
         if name not in _cache:
-            _cache[name] = HashEmbedder() if name == HASH_MODEL else SentenceTransformerEmbedder(name)
+            if name == "auto":
+                try:
+                    _cache[name] = SentenceTransformerEmbedder(DEFAULT_SEMANTIC_MODEL, local_files_only=True)
+                    log.info("Using cached approved semantic embedder %s", DEFAULT_SEMANTIC_MODEL)
+                except Exception as exc:
+                    log.warning("Approved semantic embedder unavailable locally; using offline hash baseline (%s)",
+                                type(exc).__name__)
+                    _cache[name] = HashEmbedder()
+            else:
+                _cache[name] = HashEmbedder() if name == HASH_MODEL else SentenceTransformerEmbedder(name)
         return _cache[name]
 
 

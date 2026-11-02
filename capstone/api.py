@@ -20,6 +20,8 @@ from .security import (Principal, authenticate, can_review, require_release_oper
 from .retrieval import split_text, retrieve, extract_report, index_chunks
 from .embeddings import get_embedder
 from .privacy import get_redactor
+from .llm import WriterPool
+from .web_search import with_web
 from collections import Counter
 from .jobs import submit_job, review_job
 from .agent import resume_review
@@ -150,6 +152,10 @@ def create_app(settings: Settings, *, init_tables: bool = False):
     app.state.sessions = sessions
     app.state.engine = engine
     app.state.notifier = RedisNotifier(settings.redis_url) if settings.redis_url else None
+    app.state.searcher = None
+    if settings.web_search_key:
+        from .web_search import BraveSearch
+        app.state.searcher = BraveSearch(settings.web_search_key, settings.web_search_tenants)
     app.state.limiter = MemoryRateLimiter() if not settings.redis_url else app.state.notifier
     get_redactor()  # load the PII detector now: a misconfigured detector fails at startup, not mid-request
     # Fails at startup if a configured attester key is malformed.
@@ -157,12 +163,11 @@ def create_app(settings: Settings, *, init_tables: bool = False):
     gate = {"artifact_root": settings.artifact_root, "max_age_hours": settings.evidence_max_age_hours}
     app.state.graph = None
     app.state.google = None
+    # Tests and evaluations may set app.state.writer to force one writer; otherwise the pool picks
+    # the model of the caller's sticky release version.
     app.state.writer = None
-    if settings.mode == "openai":
-        if not settings.openai_model:
-            raise RuntimeError("MODEL_BACKEND=openai needs OPENAI_MODEL")
-        from .llm import LLMWriter
-        app.state.writer = LLMWriter(settings.openai_model)
+    app.state.writers = WriterPool(settings)
+    app.state.writers.get()  # a misconfigured model backend fails at startup, not mid-request
     if settings.google_client_id and settings.google_client_secret:
         app.state.google = GoogleOIDC(settings.google_client_id, settings.google_client_secret,
                                       f"{settings.public_url}/v1/auth/google/callback")
@@ -289,18 +294,25 @@ def create_app(settings: Settings, *, init_tables: bool = False):
     def ask(data: Query, p: Principal = Depends(principal)):
         with sessions() as s:
             passages = retrieve(s, p, data.question, data.top_k, data.group)
+            passages = with_web(passages, data.question, p.tenant, app.state.searcher)
+            # Generated answers follow the same sticky release assignment as research jobs.
+            routed_writer = app.state.writer
+            if routed_writer is None and app.state.writers.enabled:
+                routed_writer = app.state.writers.for_version(
+                    s, stable_model(s, f"{p.tenant}:{p.user}", settings.routing_secret))
         report, citations = extract_report(data.question, passages)
         mode = "offline-extractive"
-        if app.state.writer is not None and passages:
+        if routed_writer is not None and passages:
             try:
-                result = app.state.writer.compose(data.question, passages)
+                result = routed_writer.compose(data.question, passages)
                 report, citations, mode = result.answer, result.citations, f"llm:{result.model}"
             except Exception:
                 # Timeout, API error or output that failed validation: answer with the safe extract instead.
                 mode = "offline-extractive-fallback"
         return {"answer": redact_pii(report), "citations":
                 [{"citation_id": x["citation_id"], "document_id": x["document_id"],
-                  "title": x["title"]} for x in passages if x["citation_id"] in citations], "mode": mode}
+                  "title": x["title"], "url": x.get("url")} for x in passages
+                 if x["citation_id"] in citations], "mode": mode}
 
     @app.post("/v1/research/jobs", status_code=202)
     def create_job(data: Query, p: Principal = Depends(principal),
